@@ -1,4 +1,4 @@
-name: Build Speedhack (32-bit)
+name: Build Speedhack (32-bit Nightly)
 
 on:
   push:
@@ -13,37 +13,40 @@ jobs:
     steps:
       - uses: actions/checkout@v3
 
-      # Install Toolchain Rust (Stable)
-      - name: Install Rust Toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: stable-i686-pc-windows-msvc # WAJIB VERSI 32-BIT (i686)
+      - name: Check Folder Structure
+        shell: powershell
+        run: ls -R
 
-      # Cache agar build selanjutnya lebih cepat
+      # UBAH KE NIGHTLY: Karena library 'retour' membutuhkan fitur unboxed_closures & tuple_trait
+      - name: Install Rust Nightly
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          toolchain: nightly-i686-pc-windows-msvc
+          target: i686-pc-windows-msvc
+
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
 
-      # Proses Build
       - name: Build Version.dll
         shell: powershell
         run: |
-          # Set Environment Variable agar build script tahu kita mau hijack siapa
           $env:PROXY_DLL = "version.dll"
-          
-          # Build Release untuk target 32-bit
-          cargo build --release --target i686-pc-windows-msvc
+          # Kita gunakan 'cargo +nightly' untuk memastikan menggunakan toolchain nightly
+          cargo +nightly build --release --target i686-pc-windows-msvc
 
-      # Mengumpulkan file hasil build
       - name: Prepare Artifacts
         shell: powershell
         run: |
           New-Item -ItemType Directory -Force -Path "artifacts"
-          # Copy DLL hasil compile
-          Copy-Item "target/i686-pc-windows-msvc/release/version.dll" -Destination "artifacts/version.dll"
+          if (Test-Path "target/i686-pc-windows-msvc/release/version.dll") {
+            Copy-Item "target/i686-pc-windows-msvc/release/version.dll" -Destination "artifacts/version.dll"
+          } else {
+            Write-Error "DLL tidak ditemukan! Build gagal."
+            exit 1
+          }
 
-      # Upload hasil agar bisa didownload user
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Speedhack-Rust-32bit
+          name: Speedhack-Rust-32bit-Nightly
           path: artifacts/version.dll
