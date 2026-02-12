@@ -17,12 +17,17 @@ jobs:
         shell: powershell
         run: ls -R
 
-      # UBAH KE NIGHTLY: Karena library 'retour' membutuhkan fitur unboxed_closures & tuple_trait
+      # Instalasi Nightly yang lebih robust
       - name: Install Rust Nightly
-        uses: dtolnay/rust-toolchain@nightly
+        uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: nightly-i686-pc-windows-msvc
-          target: i686-pc-windows-msvc
+          toolchain: nightly
+          targets: i686-pc-windows-msvc
+          default: true # Memastikan nightly menjadi versi default
+
+      # Verifikasi versi Rust yang aktif di log
+      - name: Verify Rust Version
+        run: rustc --version
 
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
@@ -31,8 +36,8 @@ jobs:
         shell: powershell
         run: |
           $env:PROXY_DLL = "version.dll"
-          # Kita gunakan 'cargo +nightly' untuk memastikan menggunakan toolchain nightly
-          cargo +nightly build --release --target i686-pc-windows-msvc
+          # Karena sudah diset default nightly, tidak perlu lagi '+nightly'
+          cargo build --release --target i686-pc-windows-msvc
 
       - name: Prepare Artifacts
         shell: powershell
@@ -41,7 +46,7 @@ jobs:
           if (Test-Path "target/i686-pc-windows-msvc/release/version.dll") {
             Copy-Item "target/i686-pc-windows-msvc/release/version.dll" -Destination "artifacts/version.dll"
           } else {
-            Write-Error "DLL tidak ditemukan! Build gagal."
+            Write-Error "DLL tidak ditemukan! Periksa log build di atas untuk detail errornya."
             exit 1
           }
 
