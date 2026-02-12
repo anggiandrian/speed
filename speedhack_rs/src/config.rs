@@ -7,53 +7,55 @@ pub const CONFIG_FILE_NAME: &str = "speedhack_config.json";
 
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
 pub struct SpeedhackConfig {
-    /// Whether to open a console for logging
     pub console: bool,
-    /// How long to wait before trying to hook the relevant game functions. Can prevent crashes due to early loads.
     pub wait_with_hook: Option<Duration>,
-    /// If set, will allow the config to be reloaded during gameplay by providing the given key codes.
     pub reload_config_keys: Option<Vec<VirtualKey>>,
     pub startup_state: Option<StartupConfig>,
-    /// Different speed states
     pub speed_states: Vec<SpeedStateConfig>,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
 pub struct StartupConfig {
-    /// The speed multiplier to apply during startup.
     pub speed: f64,
-    /// How long to apply the above speed for on initial startup
     pub duration: Option<Duration>,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
 pub struct SpeedStateConfig {
-    /// All keys that need to be pressed for a speed state to be selected.
-    ///
-    /// Expects [virtual key codes](https://learn.microsoft.com/en-us/windows/win32/inputdev/virtual-key-codes).
     pub keys: Vec<VirtualKey>,
-    /// The speed to run at while the selected keys are selected.
-    ///
-    /// Needs to be `> 0`
     pub speed: f64,
-    /// Whether the keys need to be held to have the speed change take effect.
-    ///
-    /// If `false` then the keys act as a toggle.
     pub is_toggle: bool,
 }
 
+// === BAGIAN INI YANG KITA MODIFIKASI ===
 impl Default for SpeedhackConfig {
     fn default() -> Self {
         Self {
-            console: false,
-            wait_with_hook: Some(Duration::from_millis(250)),
-            reload_config_keys: Some(vec![VirtualKey::VK_CONTROL, VirtualKey::VK_SHIFT, VirtualKey::VK_R]),
+            // Aktifkan console by default agar bisa debug crash
+            console: true, 
+            // Tunggu 2 detik (lebih aman) sebelum hook agar nmcogame.dll siap
+            wait_with_hook: Some(Duration::from_millis(2000)), 
+            
+            // Tombol Reload Config: CTRL + R
+            reload_config_keys: Some(vec![VirtualKey::VK_CONTROL, VirtualKey::VK_R]),
+            
             startup_state: None,
-            speed_states: vec![SpeedStateConfig {
-                keys: vec![VirtualKey::VK_CONTROL, VirtualKey::VK_SHIFT],
-                speed: 10.0,
-                is_toggle: false,
-            }],
+            
+            // Logic Speedhack Default
+            speed_states: vec![
+                // State 1: Tekan F5 untuk Toggle Speed 3.0x (Sama seperti C++ kita)
+                SpeedStateConfig {
+                    keys: vec![VirtualKey::VK_F5],
+                    speed: 3.0,
+                    is_toggle: true,
+                },
+                // State 2: Tahan F6 untuk Turbo Speed 10.0x
+                SpeedStateConfig {
+                    keys: vec![VirtualKey::VK_F6],
+                    speed: 10.0,
+                    is_toggle: false,
+                }
+            ],
         }
     }
 }
@@ -62,6 +64,7 @@ pub fn create_initial_config(directory: impl AsRef<Path>) -> eyre::Result<()> {
     let default_conf = SpeedhackConfig::default();
     let path = directory.as_ref().join(CONFIG_FILE_NAME);
 
+    // Selalu buat file config baru jika belum ada
     if !path.exists() {
         let mut file = std::fs::File::create(path)?;
         serde_json::to_writer_pretty(&mut file, &default_conf)?;
@@ -71,7 +74,14 @@ pub fn create_initial_config(directory: impl AsRef<Path>) -> eyre::Result<()> {
 }
 
 pub fn load_config(directory: impl AsRef<Path>) -> eyre::Result<SpeedhackConfig> {
-    let file = std::fs::read(directory.as_ref().join(CONFIG_FILE_NAME))?;
+    let path = directory.as_ref().join(CONFIG_FILE_NAME);
+    
+    // Jika file config tidak ada, gunakan default (F5/F6) tanpa error
+    if !path.exists() {
+        return Ok(SpeedhackConfig::default());
+    }
+
+    let file = std::fs::read(path)?;
     let conf = serde_json::from_slice(&file).context("Failed to read config file, is it valid?")?;
 
     validate_config(&conf)?;
