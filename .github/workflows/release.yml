@@ -1,52 +1,78 @@
-name: Build Speedhack (32-bit Nightly)
-
+name: Stable Release
 on:
   push:
-    branches: [ "main" ]
+    tags:
+      - 'v[0-9]+.*' # Release tags matching v*, i.e. v1.0, v20.15.10
   workflow_dispatch:
 
 jobs:
-  build:
-    name: Build DLL
-    runs-on: windows-latest
-    
+  build_release_assets:
+    name: Build release assets
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ windows-latest ]
+        toolchain: [ nightly-x86_64-pc-windows-msvc ]
+        target: [ x86_64-pc-windows-msvc, i686-pc-windows-msvc ]
+
     steps:
-      - uses: actions/checkout@v3
-
-      - name: Check Folder Structure
-        shell: powershell
-        run: ls -R
-
-      # UBAH KE NIGHTLY: Karena library 'retour' membutuhkan fitur unboxed_closures & tuple_trait
-      - name: Install Rust Nightly
-        uses: dtolnay/rust-toolchain@nightly
+      - uses: actions/checkout@master
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: nightly-i686-pc-windows-msvc
-          target: i686-pc-windows-msvc
+          toolchain: ${{ matrix.toolchain }}
+          target: ${{ matrix.target }}
 
-      - name: Rust Cache
+      - name: Cache Dependencies
         uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
 
-      - name: Build Version.dll
+      - name: Build all proxy DLLs
         shell: powershell
         run: |
-          $env:PROXY_DLL = "version.dll"
-          # Kita gunakan 'cargo +nightly' untuk memastikan menggunakan toolchain nightly
-          cargo +nightly build --release --target i686-pc-windows-msvc
-
-      - name: Prepare Artifacts
-        shell: powershell
-        run: |
-          New-Item -ItemType Directory -Force -Path "artifacts"
-          if (Test-Path "target/i686-pc-windows-msvc/release/version.dll") {
-            Copy-Item "target/i686-pc-windows-msvc/release/version.dll" -Destination "artifacts/version.dll"
-          } else {
-            Write-Error "DLL tidak ditemukan! Build gagal."
-            exit 1
+          $Dlls = @("version.dll", "hid.dll", "dinput8.dll", "winhttp.dll")
+          $DistDir = "dist"
+          
+          # Create output directory
+          New-Item -ItemType Directory -Force -Path $DistDir
+          
+          foreach ($Dll in $Dlls) {
+            Write-Host "Building variant: $Dll for ${{ matrix.target }}..."
+            # Build
+            $env:PROXY_DLL = $Dll            
+            cargo build --release --target ${{ matrix.target }}
+          
+            # 3. Calculate paths
+            $SrcPath = "target/${{ matrix.target }}/release/version.dll"
+            $DestPath = "$DistDir/$Dll"
+          
+            # 4. Copy and Rename
+            if (Test-Path $SrcPath) {
+              Copy-Item -Path $SrcPath -Destination $DestPath -Force
+              Write-Host "packaged: $DestPath"
+            } else {
+              Write-Error "Build failed or file not found: $SrcPath"
+              exit 1
+            }
           }
 
-      - name: Upload Artifact
-        uses: actions/upload-artifact@v4
+      - name: Package asset as zip
+        uses: thedoctor0/zip-release@0.7.1
         with:
-          name: Speedhack-Rust-32bit-Nightly
-          path: artifacts/version.dll
+          type: 'zip'
+          filename: "speedhack-rs-${{ matrix.target }}.zip"
+          directory: "dist"
+          path: "."
+
+      - name: Upload binaries to release
+        uses: ncipollo/release-action@v1
+        with:
+          allowUpdates: true
+          replacesArtifacts: false
+          artifacts: "dist/speedhack-rs-${{ matrix.target }}.zip"
+
+      - name: Clear the cargo caches
+        run: |
+          cargo install cargo-cache --no-default-features --features ci-autoclean
+          cargo-cache
